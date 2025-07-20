@@ -9,7 +9,7 @@ app = Flask(__name__)
 
 # This is a secret token that you create.
 # It should match the one you enter in the Meta App dashboard.
-VERIFY_TOKEN = 'YOUR_SECRET_VERIFY_TOKEN' # Change this to a random secret string
+VERIFY_TOKEN = 'doofy-webhook-password-196300' # Change this to a random secret string
 
 
 # =================================================================================

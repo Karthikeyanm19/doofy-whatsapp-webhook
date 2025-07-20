@@ -1,6 +1,6 @@
 import json
 import os
-import psycopg2 # <-- NEW: Library to connect to the database
+import psycopg2 # Library to connect to the database
 from flask import Flask, request
 
 # =================================================================================
@@ -11,13 +11,13 @@ app = Flask(__name__)
 # This is a secret token that you create.
 VERIFY_TOKEN = 'doofy-webhook-password-196300' # Make sure this still matches your Meta dashboard
 
-# --- NEW: Database Connection Details ---
-# These will be loaded from Render's Environment Variables for security.
+# --- Database Connection Details ---
+# These are loaded from Render's Environment Variables for security.
 DB_HOST = os.environ.get('DB_HOST')
 DB_NAME = os.environ.get('DB_NAME')
 DB_USER = os.environ.get('DB_USER')
 DB_PASSWORD = os.environ.get('DB_PASSWORD')
-DB_PORT = os.environ.get('DB_PORT', 5432) # Default PostgreSQL port is 5432
+DB_PORT = os.environ.get('DB_PORT', 5432)
 
 # =================================================================================
 # --- 2. DATABASE FUNCTION ---
@@ -27,14 +27,20 @@ def save_message_to_db(sender_id, message_text):
     """Connects to the database and inserts a new message."""
     conn = None
     try:
-        # Establish a connection to the database
-        conn = psycopg2.connect(
-            host=DB_HOST,
-            dbname=DB_NAME,
-            user=DB_USER,
-            password=DB_PASSWORD,
-            port=DB_PORT
+        # --- UPDATED CONNECTION LOGIC ---
+        # We now add the required 'pool_mode' as an option in the database name string.
+        conn_string = (
+            f"host={DB_HOST} "
+            f"dbname={DB_NAME} "
+            f"user={DB_USER} "
+            f"password={DB_PASSWORD} "
+            f"port={DB_PORT} "
+            f"options='-c pool_mode=transaction'" # <-- THIS IS THE FIX
         )
+        
+        # Establish a connection to the database using the full connection string
+        conn = psycopg2.connect(conn_string)
+        
         # Create a cursor object
         cur = conn.cursor()
         

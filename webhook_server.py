@@ -1,68 +1,96 @@
 import json
+import os
+import psycopg2 # <-- NEW: Library to connect to the database
 from flask import Flask, request
 
 # =================================================================================
 # --- 1. CONFIGURATION ---
 # =================================================================================
-# Initialize the Flask application
 app = Flask(__name__)
 
 # This is a secret token that you create.
-# It should match the one you enter in the Meta App dashboard.
-VERIFY_TOKEN = 'doofy-webhook-password-196300' # Change this to a random secret string
+VERIFY_TOKEN = 'doofy-webhook-password-196300' # Make sure this still matches your Meta dashboard
 
+# --- NEW: Database Connection Details ---
+# These will be loaded from Render's Environment Variables for security.
+DB_HOST = os.environ.get('DB_HOST')
+DB_NAME = os.environ.get('DB_NAME')
+DB_USER = os.environ.get('DB_USER')
+DB_PASSWORD = os.environ.get('DB_PASSWORD')
+DB_PORT = os.environ.get('DB_PORT', 5432) # Default PostgreSQL port is 5432
 
 # =================================================================================
-# --- 2. WEBHOOK ENDPOINTS ---
-# This is where the app receives requests from Meta.
+# --- 2. DATABASE FUNCTION ---
+# This function handles saving the message to your Supabase database.
+# =================================================================================
+def save_message_to_db(sender_id, message_text):
+    """Connects to the database and inserts a new message."""
+    conn = None
+    try:
+        # Establish a connection to the database
+        conn = psycopg2.connect(
+            host=DB_HOST,
+            dbname=DB_NAME,
+            user=DB_USER,
+            password=DB_PASSWORD,
+            port=DB_PORT
+        )
+        # Create a cursor object
+        cur = conn.cursor()
+        
+        # SQL query to insert data into the 'messages' table
+        sql_query = "INSERT INTO messages (sender_id, message_text) VALUES (%s, %s);"
+        
+        # Execute the query
+        cur.execute(sql_query, (sender_id, message_text))
+        
+        # Commit the transaction
+        conn.commit()
+        
+        print(f"✔ Successfully saved message from {sender_id} to the database.")
+        
+        # Close the cursor
+        cur.close()
+    except Exception as e:
+        print(f"❌ Database Error: {e}")
+    finally:
+        if conn is not None:
+            # Close the connection
+            conn.close()
+
+# =================================================================================
+# --- 3. WEBHOOK ENDPOINTS ---
 # =================================================================================
 
-# --- Endpoint for Webhook Verification ---
-# Meta sends a GET request to this endpoint to verify your webhook's authenticity.
 @app.route('/webhook', methods=['GET'])
 def webhook_verify():
-    """
-    Handles the webhook verification request from Meta.
-    """
-    # Parse the query parameters from the request
+    """Handles the webhook verification request from Meta."""
     mode = request.args.get('hub.mode')
     token = request.args.get('hub.verify_token')
     challenge = request.args.get('hub.challenge')
 
-    # Check if a token and mode were sent
     if mode and token:
-        # Check the mode and token sent are correct
         if mode == 'subscribe' and token == VERIFY_TOKEN:
-            # Respond with 200 OK and the challenge token from the request
             print("✔ Webhook verified successfully!")
             return challenge, 200
         else:
-            # Responds with '403 Forbidden' if verify tokens do not match
             print("❌ Webhook verification failed: Mismatched tokens.")
             return 'Forbidden', 403
     
     print("❌ Webhook verification failed: Missing parameters.")
     return 'Bad Request', 400
 
-
-# --- Endpoint for Receiving Messages ---
-# Meta sends a POST request with message data to this endpoint.
 @app.route('/webhook', methods=['POST'])
 def webhook_handler():
-    """
-    Handles incoming messages and notifications from WhatsApp.
-    """
-    # Get the JSON data from the request
+    """Handles incoming messages and saves them to the database."""
     data = request.get_json()
     print("\n--- Received Webhook Data ---")
-    print(json.dumps(data, indent=2)) # Pretty-print the data for easy reading
+    print(json.dumps(data, indent=2))
 
-    # Check if the notification is a message
     if data.get('object') == 'whatsapp_business_account':
         try:
             for entry in data['entry']:
                 for change in entry['changes']:
-                    # Check if the change contains a 'messages' field
                     if 'messages' in change['value']:
                         message = change['value']['messages'][0]
                         sender_id = message['from']
@@ -70,26 +98,18 @@ def webhook_handler():
                         
                         print(f"✅ New message from {sender_id}: '{message_text}'")
                         
-                        #
-                        # --- YOUR BUSINESS LOGIC GOES HERE ---
-                        # For example, you could save the message to a database,
-                        # send an automated reply, or forward it to a support agent.
-                        #
+                        # --- Call the function to save the message ---
+                        save_message_to_db(sender_id, message_text)
                         
         except (IndexError, KeyError) as e:
-            # This handles cases where the message structure is not what we expect
             print(f"⚠️ Could not parse message data: {e}")
             pass
 
-    # Return a '200 OK' response to let Meta know you've received the notification
     return 'OK', 200
 
-
 # =================================================================================
-# --- 3. RUN THE APPLICATION ---
+# --- 4. RUN THE APPLICATION ---
 # =================================================================================
 
 if __name__ == '__main__':
-    # When running locally, Flask's development server is used.
-    # When deploying to a service like Render, a production server like Gunicorn will run this.
     app.run(port=5000, debug=True)
